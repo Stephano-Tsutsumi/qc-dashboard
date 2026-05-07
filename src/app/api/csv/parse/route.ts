@@ -8,9 +8,9 @@ import { anthropic } from '@/lib/anthropic'
 export async function POST(request: NextRequest) {
   const supabase = createClient(cookies())
   const {
-    data: { session },
-  } = await supabase.auth.getSession()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
     const formData = await request.formData()
@@ -35,10 +35,11 @@ export async function POST(request: NextRequest) {
     let aiRecommendations = ''
 
     if (process.env.ANTHROPIC_API_KEY) {
-      const model = process.env.ANTHROPIC_MODEL ?? 'claude-3-5-sonnet-20241022'
+      // Default: Claude Opus 4.7 (Claude API ID). Override with ANTHROPIC_MODEL.
+      const model = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-7'
       const aiResponse = await anthropic.messages.create({
         model,
-        max_tokens: 1000,
+        max_tokens: 2048,
         messages: [{ role: 'user', content: prompt }],
       })
       const block = aiResponse.content[0]

@@ -21,9 +21,9 @@ export async function GET() {
 export async function POST(request: Request) {
   const supabase = createClient(cookies())
   const {
-    data: { session },
-  } = await supabase.auth.getSession()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   type Body = {
     label: string
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
       ai_recommendations: body.ai_recommendations,
       stats_json: body.stats_json as Json,
       csv_filename: body.csv_filename,
-      imported_by: session.user.id,
+      imported_by: user.id,
     })
     .select()
     .single()

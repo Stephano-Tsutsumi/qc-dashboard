@@ -24,9 +24,9 @@ export async function POST(request: Request, context: { params: { id: string } }
   const { id } = context.params
   const supabase = createClient(cookies())
   const {
-    data: { session },
-  } = await supabase.auth.getSession()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   let body: { body?: string }
   try {
@@ -41,15 +41,13 @@ export async function POST(request: Request, context: { params: { id: string } }
   }
 
   const userName =
-    session.user.user_metadata?.full_name ??
-    session.user.email ??
-    session.user.id.slice(0, 8)
+    user.user_metadata?.full_name ?? user.email ?? user.id.slice(0, 8)
 
   const { data: inserted, error } = await supabase
     .from('comments')
     .insert({
       issue_id: id,
-      user_id: session.user.id,
+      user_id: user.id,
       user_name: userName,
       user_initials: initialsFromName(userName),
       body: text,
@@ -64,7 +62,7 @@ export async function POST(request: Request, context: { params: { id: string } }
 
   await supabase.from('activity_log').insert({
     issue_id: id,
-    user_id: session.user.id,
+    user_id: user.id,
     user_name: userName,
     type: 'comment',
     description: text.slice(0, 200),

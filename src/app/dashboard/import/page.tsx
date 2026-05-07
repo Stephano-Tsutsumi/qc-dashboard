@@ -31,7 +31,11 @@ export default function ImportPage() {
       setPreview(null)
       const fd = new FormData()
       fd.set('file', file)
-      const res = await fetch('/api/csv/parse', { method: 'POST', body: fd })
+      const res = await fetch('/api/csv/parse', {
+        method: 'POST',
+        body: fd,
+        credentials: 'include',
+      })
       setLoading(false)
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
@@ -60,6 +64,7 @@ export default function ImportPage() {
     const res = await fetch('/api/weeks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({
         label: label || 'Import',
         report_date: reportDate || new Date().toISOString().slice(0, 10),

@@ -6,9 +6,9 @@ export async function DELETE(_request: Request, context: { params: { id: string 
   const { id } = context.params
   const supabase = createClient(cookies())
   const {
-    data: { session },
-  } = await supabase.auth.getSession()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { error } = await supabase.from('weekly_snapshots').delete().eq('id', id)
 
