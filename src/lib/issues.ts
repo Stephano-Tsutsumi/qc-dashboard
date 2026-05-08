@@ -8,7 +8,8 @@ export interface IssueDef {
   title: string
   description: string
   evidence: {
-    qcNotes: Array<{ ref: string; comment: string }>
+    /** ref: interaction ID from import, or `QC` for catalog-only placeholder */
+    qcNotes: Array<{ ref: string; comment: string; section?: string }>
     recommendedAction: string
   }
 }

@@ -203,7 +203,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
 
               const csvMatchedNotes =
                 !catalogOnly && snapshotReviewerNotes.length > 0
-                  ? getNotesForIssue(row.id, snapshotReviewerNotes, 4)
+                  ? getNotesForIssue(row.id, snapshotReviewerNotes, 5)
                   : []
 
               const evidence =
@@ -212,6 +212,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
                       qcNotes: csvMatchedNotes.map((n) => ({
                         ref: n.ref.trim() || 'QC',
                         comment: n.comment.trim(),
+                        section: n.section.trim() || undefined,
                       })),
                       recommendedAction: baseEvidence.recommendedAction,
                     }

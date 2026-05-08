@@ -26,6 +26,27 @@ function chipRefLabel(ref: string, max = 32) {
   return t.length > max ? `${t.slice(0, max)}…` : t
 }
 
+type QcNote = IssueDef['evidence']['qcNotes'][number]
+
+/** Interaction ID + category line (matches CSV layout); legacy SPECIAL uses "ID — category" inside ref. */
+function qcNoteHeader(note: QcNote): { id: string; category: string } | null {
+  const section = note.section?.trim()
+  const rawRef = note.ref.trim()
+  if (section && rawRef && rawRef !== 'QC') {
+    return { id: rawRef, category: section }
+  }
+  if (rawRef.includes(' — ')) {
+    const i = rawRef.indexOf(' — ')
+    const id = rawRef.slice(0, i).trim()
+    const category = rawRef.slice(i + 3).trim()
+    if (id) return { id, category: category || 'Reviewer note' }
+  }
+  if (rawRef && rawRef !== 'QC') {
+    return { id: rawRef, category: '' }
+  }
+  return null
+}
+
 export interface IssueCardProps {
   id: string
   priority: Priority | string
@@ -100,6 +121,20 @@ export function IssueCard({
     return [...new Set(refs)]
   }, [evidence.qcNotes])
 
+  const showRefChipRow = useMemo(() => {
+    if (refChips.length === 0) return false
+    if (refChips.length === 1 && refChips[0] === 'QC') return false
+    return !evidence.qcNotes.some((n) => qcNoteHeader(n) != null)
+  }, [evidence.qcNotes, refChips])
+
+  const importIdsTooltip = useMemo(() => {
+    const ids = weekImportSignal?.interactionIds
+    if (!ids?.length) return undefined
+    const shown = ids.slice(0, 5)
+    const suffix = ids.length > 5 ? ` (+${ids.length - 5} more in this import)` : ''
+    return `${shown.join(', ')}${suffix}`
+  }, [weekImportSignal?.interactionIds])
+
   const impactLabel = isPriority(p) ? PRIORITY_IMPACT_LABEL[p] : 'Impact: —'
 
   return (
@@ -150,12 +185,8 @@ export function IssueCard({
             <p
               className="mt-2 text-xs font-medium text-accent"
               title={
-                weekImportSignal.interactionIds?.length
-                  ? weekImportSignal.interactionIds.slice(0, 40).join(', ') +
-                    (weekImportSignal.interactionIds.length > 40 ? '…' : '')
-                  : weekImportSignal.section
-                  ? `Columns: ${weekImportSignal.section}`
-                  : undefined
+                importIdsTooltip ??
+                (weekImportSignal.section ? `Columns: ${weekImportSignal.section}` : undefined)
               }
             >
               This import · {weekImportSignal.callCount}{' '}
@@ -182,27 +213,54 @@ export function IssueCard({
               >
                 {impactLabel}
               </span>
-              {refChips.map((ref) => (
-                <span
-                  key={ref}
-                  title={ref}
-                  className="mono inline-flex max-w-full items-center rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs font-medium text-accent"
-                >
-                  Ref: {chipRefLabel(ref)}
-                </span>
-              ))}
+              {showRefChipRow
+                ? refChips.map((ref) => (
+                    <span
+                      key={ref}
+                      title={ref}
+                      className="mono inline-flex max-w-full items-center rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs font-medium text-accent"
+                    >
+                      Ref: {chipRefLabel(ref)}
+                    </span>
+                  ))
+                : null}
             </div>
             <div>
               <SectionLabel>QC reviewer notes</SectionLabel>
-              <ul className="mt-3 list-none space-y-5 p-0">
-                {evidence.qcNotes.map((note, i) => (
-                  <li key={`${note.ref}-${i}`}>
-                    <code className="mono text-xs font-medium text-accent">{note.ref}</code>
-                    <p className="mt-1.5 text-sm leading-relaxed text-text-secondary">
-                      {note.comment}
-                    </p>
-                  </li>
-                ))}
+              <ul className="mt-3 list-none space-y-3 p-0">
+                {evidence.qcNotes.map((note, i) => {
+                  const header = qcNoteHeader(note)
+                  return (
+                    <li key={`${note.ref}-${i}`}>
+                      <div
+                        className="rounded border border-border bg-surface px-3 py-3 shadow-sm"
+                        style={{ borderRadius: 'var(--radius)' }}
+                      >
+                        {header ? (
+                          <div className="text-sm leading-snug">
+                            <span className="mono font-semibold text-accent">{header.id}</span>
+                            {header.category ? (
+                              <>
+                                <span className="text-text-muted"> — </span>
+                                <span className="font-medium text-text-secondary">
+                                  {header.category}
+                                </span>
+                              </>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        <p
+                          className={cn(
+                            'text-sm leading-relaxed text-text-secondary',
+                            header ? 'mt-2' : ''
+                          )}
+                        >
+                          {note.comment}
+                        </p>
+                      </div>
+                    </li>
+                  )
+                })}
               </ul>
             </div>
             <div>
