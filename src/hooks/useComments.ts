@@ -1,11 +1,18 @@
 import useSWR from 'swr'
 import { useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
+import type { CommentRow } from '@/types/comment'
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json())
+type CommentsResponse = { comments: CommentRow[] }
+
+async function fetcher(url: string): Promise<CommentsResponse> {
+  const r = await fetch(url, { credentials: 'include' })
+  if (!r.ok) throw new Error(`Request failed: ${r.status}`)
+  return r.json()
+}
 
 export function useComments(issueId: string) {
-  const { data, error, mutate } = useSWR(
+  const { data, error, mutate } = useSWR<CommentsResponse>(
     issueId ? `/api/issues/${issueId}/comments` : null,
     fetcher
   )
@@ -34,5 +41,5 @@ export function useComments(issueId: string) {
     }
   }, [issueId, mutate])
 
-  return { comments: data?.comments ?? [], isLoading: !data && !error, error }
+  return { comments: data?.comments ?? [], isLoading: !data && !error, error, mutate }
 }

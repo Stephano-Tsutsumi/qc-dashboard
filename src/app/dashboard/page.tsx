@@ -1,27 +1,27 @@
 import { createClient } from '@/utils/supabase/server'
 import { cookies } from 'next/headers'
 import { ISSUE_BY_ID } from '@/lib/issues'
-
-function priorityBadge(p: string) {
-  const map: Record<string, string> = {
-    p0: 'bg-p0-bg text-p0 border-p0-border',
-    p1: 'bg-p1-bg text-p1 border-p1-border',
-    p2: 'bg-p2-bg text-p2 border-p2-border',
-    p3: 'bg-p3-bg text-p3 border-p3-border',
-  }
-  return map[p] ?? 'bg-surface-2 text-text border-border'
-}
+import { QcReportSections } from '@/components/report/QcReportSections'
 
 export default async function DashboardPage() {
   const supabase = createClient(cookies())
-  const { data: rows } = await supabase.from('issues').select(`
-      id,
-      priority,
-      title,
-      issue_states ( status, jira_ticket, updated_at )
-    `)
+
+  const [{ data: rows }, { data: commentRows }] = await Promise.all([
+    supabase.from('issues').select(`
+        id,
+        priority,
+        title,
+        issue_states ( status, jira_ticket, updated_at )
+      `),
+    supabase.from('comments').select('issue_id'),
+  ])
 
   const issues = rows ?? []
+  const countByIssue = new Map<string, number>()
+  for (const r of commentRows ?? []) {
+    countByIssue.set(r.issue_id, (countByIssue.get(r.issue_id) ?? 0) + 1)
+  }
+
   const byP = { p0: 0, p1: 0, p2: 0, p3: 0 }
   for (const i of issues) {
     const p = i.priority as keyof typeof byP
@@ -33,7 +33,10 @@ export default async function DashboardPage() {
       <div>
         <h1 className="text-xl font-semibold text-text">QC Report</h1>
         <p className="mt-1 text-sm text-text-secondary">
-          Issue catalogue with collaboration state (full UI parity with v4 HTML is next).
+          Filter by priority or expand a section, then a card for QC notes, refs, and collaboration
+          (status, Jira, comments with realtime updates). Data definitions live in{' '}
+          <code className="mono text-xs">issues.ts</code>. The footer always mirrors the latest status,
+          Jira, and comment count while a card is expanded.
         </p>
       </div>
 
@@ -50,41 +53,30 @@ export default async function DashboardPage() {
         ))}
       </div>
 
-      <ul className="space-y-2">
-        {issues.map((row) => {
+      <QcReportSections
+        items={issues.map((row) => {
           const state = Array.isArray(row.issue_states)
             ? row.issue_states[0]
             : row.issue_states
           const def = ISSUE_BY_ID[row.id]
-          return (
-            <li
-              key={row.id}
-              className="rounded border border-border bg-surface p-4 shadow-sm"
-              style={{ borderRadius: 'var(--radius)' }}
-            >
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <span
-                    className={`inline-block rounded-sm border px-2 py-0.5 text-xs font-medium ${priorityBadge(row.priority)}`}
-                  >
-                    {row.priority.toUpperCase()}
-                  </span>
-                  <h2 className="mt-2 font-medium text-text">{row.title}</h2>
-                  {def && (
-                    <p className="mt-1 text-sm text-text-secondary line-clamp-2">
-                      {def.description}
-                    </p>
-                  )}
-                </div>
-                <div className="text-right text-xs text-text-muted">
-                  <div>Status: {state?.status ?? 'open'}</div>
-                  {state?.jira_ticket && <div className="mono mt-1">{state.jira_ticket}</div>}
-                </div>
-              </div>
-            </li>
-          )
+          const description = def?.description ?? ''
+          const evidence = def?.evidence ?? {
+            qcNotes: [{ ref: 'QC', comment: description || 'No description.' }],
+            recommendedAction: 'Track and remediate per team process.',
+          }
+
+          return {
+            id: row.id,
+            priority: row.priority,
+            title: row.title,
+            description,
+            status: state?.status,
+            jiraTicket: state?.jira_ticket,
+            commentCount: countByIssue.get(row.id) ?? 0,
+            evidence,
+          }
         })}
-      </ul>
+      />
     </div>
   )
 }
