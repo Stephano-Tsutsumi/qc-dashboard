@@ -58,6 +58,8 @@ export async function POST(request: NextRequest) {
       issueInteractionBreakdown: parsed.issueInteractionBreakdown,
       sectionStats: parsed.sectionStats,
       dates: parsed.dates,
+      reviewerNotes: parsed.reviewerNotes,
+      calls: parsed.calls,
       csvFilename: file.name,
       aiSummary,
       aiRecommendations,

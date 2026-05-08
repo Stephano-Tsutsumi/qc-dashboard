@@ -3,7 +3,8 @@ import { cookies } from 'next/headers'
 import { ISSUE_BY_ID } from '@/lib/issues'
 import { QcReportSections } from '@/components/report/QcReportSections'
 import { QcReportWeekSelector } from '@/components/report/QcReportWeekSelector'
-import { buildWeekIssueSignalMapFromStatsJson, resolveWeekSelection, type SnapshotListRow } from '@/lib/snapshot-stats'
+import { buildWeekIssueSignalMapFromStatsJson, parseReviewerNotesFromStatsJson, resolveWeekSelection, type SnapshotListRow } from '@/lib/snapshot-stats'
+import { getNotesForIssue } from '@/lib/issueNoteRules'
 
 type SearchParams = Record<string, string | string[] | undefined>
 
@@ -68,6 +69,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
     report_date: s.report_date,
   }))
 
+  const snapshotReviewerNotes =
+    selection.mode === 'week'
+      ? parseReviewerNotesFromStatsJson(selection.snapshot.stats_json)
+      : []
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -75,9 +81,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
           <h1 className="text-xl font-semibold text-text">QC Report</h1>
           <p className="mt-1 max-w-2xl text-sm text-text-secondary">
             Choose a saved CSV snapshot to focus on issues seen in that import, or open the full
-            catalog. Cards still use evidence from <code className="mono text-xs">issues.ts</code>;
-            counts on each card reflect merged rows from <code className="mono text-xs">stats_json</code>{' '}
-            when a week is selected. Collaboration state is shared across all views.
+            catalog. When a week is selected, QC notes on cards come from that import&apos;s CSV
+            (Answer Comment) where they match catalog rules; recommended actions stay from{' '}
+            <code className="mono text-xs">issues.ts</code>. Counts reflect{' '}
+            <code className="mono text-xs">stats_json</code>. Collaboration state is shared across all
+            views.
           </p>
         </div>
         <QcReportWeekSelector snapshots={selectorSnapshots} value={weekSelectValue} />
@@ -188,10 +196,26 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
                 : row.issue_states
               const def = ISSUE_BY_ID[row.id]
               const description = def?.description ?? ''
-              const evidence = def?.evidence ?? {
+              const baseEvidence = def?.evidence ?? {
                 qcNotes: [{ ref: 'QC', comment: description || 'No description.' }],
                 recommendedAction: 'Track and remediate per team process.',
               }
+
+              const csvMatchedNotes =
+                !catalogOnly && snapshotReviewerNotes.length > 0
+                  ? getNotesForIssue(row.id, snapshotReviewerNotes, 4)
+                  : []
+
+              const evidence =
+                csvMatchedNotes.length > 0
+                  ? {
+                      qcNotes: csvMatchedNotes.map((n) => ({
+                        ref: n.ref.trim() || 'QC',
+                        comment: n.comment.trim(),
+                      })),
+                      recommendedAction: baseEvidence.recommendedAction,
+                    }
+                  : baseEvidence
 
               const signal = !catalogOnly && weekMap ? weekMap.get(row.id) : undefined
 

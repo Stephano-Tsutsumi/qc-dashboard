@@ -11,6 +11,21 @@ type ParseResult = {
   issueInteractionBreakdown: Array<{ issueId: string; interactionIds: string[] }>
   sectionStats: Record<string, { zero: number; total: number }>
   dates: string[]
+  reviewerNotes: Array<{
+    ref: string
+    section: string
+    question: string
+    answer: string
+    comment: string
+    questionPct: number
+  }>
+  calls: Array<{
+    ref: string
+    score: number
+    date: string
+    duration: string
+    range: string
+  }>
   csvFilename: string
   aiSummary: string
   aiRecommendations: string
@@ -79,6 +94,8 @@ export default function ImportPage() {
           sectionStats: preview.sectionStats,
           detectedIssues: preview.detectedIssues,
           issueInteractionBreakdown: preview.issueInteractionBreakdown,
+          reviewerNotes: preview.reviewerNotes,
+          calls: preview.calls,
           dates: preview.dates,
         },
         csv_filename: preview.csvFilename,
@@ -87,7 +104,8 @@ export default function ImportPage() {
     setLoading(false)
     if (!res.ok) {
       const j = await res.json().catch(() => ({}))
-      setError(j.error ?? `HTTP ${res.status}`)
+      const msg = j.details ? `${j.error ?? 'Error'}: ${j.details}` : (j.error ?? `HTTP ${res.status}`)
+      setError(typeof msg === 'string' ? msg : `HTTP ${res.status}`)
       return
     }
     router.push('/dashboard/tracker')

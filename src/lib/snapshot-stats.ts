@@ -1,4 +1,4 @@
-import type { DetectedIssue, IssueInteractionBreakdown } from '@/types/csv'
+import type { DetectedIssue, IssueInteractionBreakdown, ReviewerNote } from '@/types/csv'
 import { ALL_ISSUES, ISSUE_BY_ID, type IssueDef } from '@/lib/issues'
 
 export type WeekIssueSignal = {
@@ -162,6 +162,29 @@ export function parseDetectedIssuesFromStatsJson(statsJson: unknown): DetectedIs
     const section = typeof o.section === 'string' ? o.section : ''
     if (!title.trim() && count === 0) continue
     out.push({ title: title || 'Unknown', count, priority, section })
+  }
+  return out
+}
+
+export function parseReviewerNotesFromStatsJson(statsJson: unknown): ReviewerNote[] {
+  if (!statsJson || typeof statsJson !== 'object') return []
+  const raw = (statsJson as Record<string, unknown>).reviewerNotes
+  if (!Array.isArray(raw)) return []
+  const out: ReviewerNote[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const o = item as Record<string, unknown>
+    const ref = typeof o.ref === 'string' ? o.ref : ''
+    const section = typeof o.section === 'string' ? o.section : ''
+    const question = typeof o.question === 'string' ? o.question : ''
+    const answer = typeof o.answer === 'string' ? o.answer : ''
+    const comment = typeof o.comment === 'string' ? o.comment : ''
+    const questionPct =
+      typeof o.questionPct === 'number' && Number.isFinite(o.questionPct)
+        ? o.questionPct
+        : Number(o.questionPct) || 0
+    if (!comment.trim()) continue
+    out.push({ ref, section, question, answer, comment, questionPct })
   }
   return out
 }

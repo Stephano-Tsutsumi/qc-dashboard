@@ -11,6 +11,25 @@ export interface DetectedIssue {
   section: string
 }
 
+/** One row-level reviewer observation from Answer Comment (v4 QC export). */
+export interface ReviewerNote {
+  ref: string
+  section: string
+  question: string
+  answer: string
+  comment: string
+  questionPct: number
+}
+
+/** One deduplicated call from Reference + Score Percentage (first row wins). */
+export interface CallSummary {
+  ref: string
+  score: number
+  date: string
+  duration: string
+  range: string
+}
+
 export interface ParsedReport {
   callCount: number
   lowScoreCount: number
@@ -18,9 +37,8 @@ export interface ParsedReport {
   detectedIssues: DetectedIssue[]
   sectionStats: Record<string, { zero: number; total: number }>
   dates: string[]
-  /**
-   * Per catalog issue, which reviewed interactions hit it.
-   * Same interaction ID can appear under multiple issues when one call maps to several findings.
-   */
   issueInteractionBreakdown: IssueInteractionBreakdown[]
+  /** Present for v4 Reference-based exports */
+  reviewerNotes: ReviewerNote[]
+  calls: CallSummary[]
 }
