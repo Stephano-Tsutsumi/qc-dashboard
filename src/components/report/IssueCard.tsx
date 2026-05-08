@@ -7,6 +7,7 @@ import type { IssueDef } from '@/lib/issues'
 import { PRIORITY_IMPACT_LABEL, isPriority } from '@/lib/priority-sections'
 import { StatusPill } from '@/components/ui/StatusPill'
 import { IssueCollabPanel } from '@/components/report/IssueCollabPanel'
+import { useIssueStateRealtime } from '@/hooks/useIssueStateRealtime'
 import { cn } from '@/lib/utils'
 
 function priorityBadgeClass(p: string): string {
@@ -34,6 +35,8 @@ export interface IssueCardProps {
   jiraTicket: string | null | undefined
   commentCount: number
   evidence: IssueDef['evidence']
+  /** Aggregated CSV detection count when a weekly snapshot is selected */
+  weekImportSignal?: { callCount: number; section: string; interactionIds?: string[] } | null
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -56,6 +59,7 @@ export function IssueCard({
   jiraTicket,
   commentCount,
   evidence,
+  weekImportSignal,
 }: IssueCardProps) {
   const panelId = useId()
   const [open, setOpen] = useState(false)
@@ -80,6 +84,16 @@ export function IssueCard({
   const syncCommentCount = useCallback((n: number) => {
     setShownCommentCount(n)
   }, [])
+
+  const applyRemoteIssueState = useCallback(
+    (row: { status: IssueStatus; jira_ticket: string | null }) => {
+      setDisplayStatus(row.status)
+      setDisplayJira(row.jira_ticket)
+    },
+    []
+  )
+
+  useIssueStateRealtime(id, applyRemoteIssueState)
 
   const refChips = useMemo(() => {
     const refs = evidence.qcNotes.map((n) => n.ref.trim()).filter(Boolean)
@@ -130,6 +144,24 @@ export function IssueCard({
               )}
             >
               {description}
+            </p>
+          ) : null}
+          {weekImportSignal ? (
+            <p
+              className="mt-2 text-xs font-medium text-accent"
+              title={
+                weekImportSignal.interactionIds?.length
+                  ? weekImportSignal.interactionIds.slice(0, 40).join(', ') +
+                    (weekImportSignal.interactionIds.length > 40 ? '…' : '')
+                  : weekImportSignal.section
+                  ? `Columns: ${weekImportSignal.section}`
+                  : undefined
+              }
+            >
+              This import · {weekImportSignal.callCount}{' '}
+              {weekImportSignal.interactionIds?.length
+                ? `interaction${weekImportSignal.callCount === 1 ? '' : 's'}`
+                : `call${weekImportSignal.callCount === 1 ? '' : 's'} flagged`}
             </p>
           ) : null}
         </div>

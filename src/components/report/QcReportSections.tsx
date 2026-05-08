@@ -21,6 +21,7 @@ export type QcReportIssueItem = {
   jiraTicket: string | null | undefined
   commentCount: number
   evidence: IssueDef['evidence']
+  weekImportSignal?: { callCount: number; section: string; interactionIds?: string[] } | null
 }
 
 type Filter = 'all' | Priority
@@ -211,6 +212,7 @@ export function QcReportSections({ items }: { items: QcReportIssueItem[] }) {
                           jiraTicket={row.jiraTicket}
                           commentCount={row.commentCount}
                           evidence={row.evidence}
+                          weekImportSignal={row.weekImportSignal}
                         />
                       </li>
                     ))}

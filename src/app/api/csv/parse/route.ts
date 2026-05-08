@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
       lowScoreCount: parsed.lowScoreCount,
       avgScore: parsed.avgScore,
       detectedIssues: parsed.detectedIssues,
+      issueInteractionBreakdown: parsed.issueInteractionBreakdown,
       sectionStats: parsed.sectionStats,
       dates: parsed.dates,
       csvFilename: file.name,

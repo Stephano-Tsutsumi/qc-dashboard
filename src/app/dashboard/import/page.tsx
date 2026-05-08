@@ -8,6 +8,7 @@ type ParseResult = {
   lowScoreCount: number
   avgScore: number
   detectedIssues: Array<{ priority: string; title: string; count: number; section: string }>
+  issueInteractionBreakdown: Array<{ issueId: string; interactionIds: string[] }>
   sectionStats: Record<string, { zero: number; total: number }>
   dates: string[]
   csvFilename: string
@@ -77,6 +78,7 @@ export default function ImportPage() {
         stats_json: {
           sectionStats: preview.sectionStats,
           detectedIssues: preview.detectedIssues,
+          issueInteractionBreakdown: preview.issueInteractionBreakdown,
           dates: preview.dates,
         },
         csv_filename: preview.csvFilename,
@@ -141,6 +143,17 @@ export default function ImportPage() {
             <div>
               <div className="text-xs text-text-muted">File</div>
               <div className="text-sm font-medium">{preview.csvFilename}</div>
+            </div>
+            <div className="sm:col-span-2">
+              <div className="text-xs text-text-muted">Catalog linkage (this import)</div>
+              <div className="text-lg font-semibold">
+                {preview.issueInteractionBreakdown.length} catalog issue
+                {preview.issueInteractionBreakdown.length === 1 ? '' : 's'}
+              </div>
+              <p className="mt-1 text-xs text-text-muted">
+                One interaction ID can appear under several catalog issues when multiple findings
+                match.
+              </p>
             </div>
           </div>
 

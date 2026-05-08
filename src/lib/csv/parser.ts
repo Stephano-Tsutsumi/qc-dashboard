@@ -1,5 +1,6 @@
 import Papa from 'papaparse'
-import type { ParsedReport, DetectedIssue } from '@/types/csv'
+import type { ParsedReport, DetectedIssue, IssueInteractionBreakdown } from '@/types/csv'
+import { allCatalogIssueIdsForFinding } from '@/lib/snapshot-stats'
 
 /** Parses numeric score from a cell (0–100 or 0–1). */
 function parseScore(raw: string | undefined): number | null {
@@ -64,8 +65,39 @@ export function parseQCCSV(csvText: string): ParsedReport {
     }
   }
 
-  const detectedIssues: DetectedIssue[] = []
   const commentKeys = fields.filter((f) => /comment|note|qc|failure|issue|finding/i.test(f))
+  const interactionKey = fields.find((f) =>
+    /interaction|call.?id|session.?id|conversation.?id|transcript.?id/i.test(
+      f.replace(/\s+/g, ' ').trim()
+    )
+  )
+
+  const issueToInteractions = new Map<string, Set<string>>()
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    const rawInteraction = interactionKey ? row[interactionKey]?.trim() : ''
+    const interactionId = rawInteraction || `row:${i}`
+
+    const issueHitsThisRow = new Set<string>()
+    for (const f of commentKeys) {
+      const text = row[f]?.trim()
+      if (!text) continue
+      for (const issueId of allCatalogIssueIdsForFinding(text)) {
+        issueHitsThisRow.add(issueId)
+      }
+    }
+
+    for (const issueId of issueHitsThisRow) {
+      if (!issueToInteractions.has(issueId)) issueToInteractions.set(issueId, new Set())
+      issueToInteractions.get(issueId)!.add(interactionId)
+    }
+  }
+
+  const issueInteractionBreakdown: IssueInteractionBreakdown[] = [...issueToInteractions.entries()]
+    .map(([issueId, set]) => ({ issueId, interactionIds: [...set] }))
+    .sort((a, b) => b.interactionIds.length - a.interactionIds.length)
+
+  const detectedIssues: DetectedIssue[] = []
   for (const f of commentKeys) {
     const counts = new Map<string, number>()
     for (const row of rows) {
@@ -101,5 +133,6 @@ export function parseQCCSV(csvText: string): ParsedReport {
     detectedIssues: detectedIssues.slice(0, 50),
     sectionStats,
     dates,
+    issueInteractionBreakdown,
   }
 }
