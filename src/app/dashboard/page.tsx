@@ -78,7 +78,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
     <div className="space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-text">QC Report</h1>
+          <h1 className="text-xl font-semibold text-text">Review Queue</h1>
         </div>
         <QcReportWeekSelector snapshots={selectorSnapshots} value={weekSelectValue} />
       </div>

@@ -188,7 +188,7 @@ export default async function TrackerPage({ searchParams }: { searchParams: Sear
         <h1 className="text-xl font-semibold text-text">Ticket Tracker</h1>
         <p className="mt-1 text-sm text-text-secondary">
           Jira / ticket linkage per catalog issue. Filter by collaboration status and by CSV import (see
-          QC Report for narrative evidence).
+          Review Queue for narrative evidence).
         </p>
       </div>
 
@@ -291,7 +291,7 @@ export default async function TrackerPage({ searchParams }: { searchParams: Sear
                         <th className="px-3 py-2 font-medium tabular-nums">Comments</th>
                         <th className="px-3 py-2 font-medium">Updated</th>
                         <th className="px-3 py-2 font-medium">Latest activity</th>
-                        <th className="px-3 py-2 font-medium">QC Report</th>
+                        <th className="px-3 py-2 font-medium">Review Queue</th>
                       </tr>
                     </thead>
                     <tbody>
