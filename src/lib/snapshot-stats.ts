@@ -144,6 +144,11 @@ export function buildWeekIssueSignalMapFromStatsJson(statsJson: unknown): Map<st
   return buildWeekIssueSignalMapFromDetectedIssues(parseDetectedIssuesFromStatsJson(statsJson))
 }
 
+/** Catalog issue IDs that appear in this snapshot (interaction breakdown or legacy detections). */
+export function getIssueIdsFromStatsJson(statsJson: unknown): Set<string> {
+  return new Set(buildWeekIssueSignalMapFromStatsJson(statsJson).keys())
+}
+
 export function buildWeekIssueSignalMap(detectedIssues: DetectedIssue[]): Map<string, WeekIssueSignal> {
   return buildWeekIssueSignalMapFromDetectedIssues(detectedIssues)
 }
