@@ -79,14 +79,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-text">QC Report</h1>
-          <p className="mt-1 max-w-2xl text-sm text-text-secondary">
-            Choose a saved CSV snapshot to focus on issues seen in that import, or open the full
-            catalog. When a week is selected, QC notes on cards come from that import&apos;s CSV
-            (Answer Comment) where they match catalog rules; recommended actions stay from{' '}
-            <code className="mono text-xs">issues.ts</code>. Counts reflect{' '}
-            <code className="mono text-xs">stats_json</code>. Collaboration state is shared across all
-            views.
-          </p>
         </div>
         <QcReportWeekSelector snapshots={selectorSnapshots} value={weekSelectValue} />
       </div>
