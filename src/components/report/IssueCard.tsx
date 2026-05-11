@@ -47,6 +47,106 @@ function qcNoteHeader(note: QcNote): { id: string; category: string } | null {
   return null
 }
 
+function CopyIcon(props: { className?: string }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={props.className}
+      aria-hidden
+    >
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  )
+}
+
+function InteractionIdsPanel({ ids }: { ids: string[] }) {
+  const [feedback, setFeedback] = useState<string | null>(null)
+  const list = useMemo(() => [...new Set(ids.map((s) => s.trim()).filter(Boolean))], [ids])
+
+  const flash = useCallback((msg: string) => {
+    setFeedback(msg)
+    window.setTimeout(() => setFeedback(null), 2000)
+  }, [])
+
+  const copyText = useCallback(
+    async (text: string, ok: string) => {
+      try {
+        await navigator.clipboard.writeText(text)
+        flash(ok)
+      } catch {
+        flash('Copy blocked — select text in the box below')
+      }
+    },
+    [flash]
+  )
+
+  if (!list.length) return null
+
+  const comma = list.join(', ')
+  const lines = list.join('\n')
+
+  return (
+    <div>
+      <SectionLabel>Interaction IDs (this import)</SectionLabel>
+      <p className="mt-1 text-xs text-text-muted">
+        Validate in your QA platform or paste into a ticket. Each pill copies one ID.
+      </p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="rounded-sm border border-border-strong bg-surface px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface-2/80"
+          onClick={() => copyText(comma, `Copied ${list.length} ID${list.length === 1 ? '' : 's'} (comma-separated)`)}
+        >
+          <span className="inline-flex items-center gap-1">
+            <CopyIcon /> Copy all (comma-separated)
+          </span>
+        </button>
+        <button
+          type="button"
+          className="rounded-sm border border-border bg-surface-2 px-2.5 py-1 text-xs font-medium text-text-secondary hover:bg-surface"
+          onClick={() => copyText(lines, `Copied ${list.length} ID${list.length === 1 ? '' : 's'} (one per line)`)}
+        >
+          <span className="inline-flex items-center gap-1">
+            <CopyIcon /> Copy all (line-separated)
+          </span>
+        </button>
+      </div>
+      {feedback ? <p className="mt-2 text-xs font-medium text-accent">{feedback}</p> : null}
+      <div className="mt-3 flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">
+        {list.map((interactionId) => (
+          <button
+            key={interactionId}
+            type="button"
+            title={`Copy ${interactionId}`}
+            onClick={() => copyText(interactionId, `Copied ${interactionId}`)}
+            className="mono inline-flex max-w-full shrink-0 items-center rounded-full border border-border bg-surface px-2.5 py-0.5 text-[11px] font-medium text-accent hover:border-accent/40 hover:bg-accent/5"
+          >
+            {interactionId}
+          </button>
+        ))}
+      </div>
+      <label className="mt-3 block">
+        <span className="sr-only">All interaction IDs for manual selection</span>
+        <textarea
+          readOnly
+          value={lines}
+          rows={Math.min(10, Math.max(3, list.length))}
+          className="mono mt-1 w-full resize-y rounded-sm border border-border bg-surface px-2 py-2 text-[11px] leading-snug text-text-secondary focus:border-accent focus:outline-none"
+          spellCheck={false}
+        />
+      </label>
+    </div>
+  )
+}
+
 export interface IssueCardProps {
   id: string
   priority: Priority | string
@@ -127,13 +227,13 @@ export function IssueCard({
     return !evidence.qcNotes.some((n) => qcNoteHeader(n) != null)
   }, [evidence.qcNotes, refChips])
 
-  const importIdsTooltip = useMemo(() => {
+  const importLineTitle = useMemo(() => {
     const ids = weekImportSignal?.interactionIds
-    if (!ids?.length) return undefined
-    const shown = ids.slice(0, 5)
-    const suffix = ids.length > 5 ? ` (+${ids.length - 5} more in this import)` : ''
-    return `${shown.join(', ')}${suffix}`
-  }, [weekImportSignal?.interactionIds])
+    if (ids?.length) {
+      return `Expand this card to view and copy all ${ids.length} interaction ID${ids.length === 1 ? '' : 's'}`
+    }
+    return weekImportSignal?.section ? `Columns: ${weekImportSignal.section}` : undefined
+  }, [weekImportSignal?.interactionIds, weekImportSignal?.section])
 
   const impactLabel = isPriority(p) ? PRIORITY_IMPACT_LABEL[p] : 'Impact: —'
 
@@ -184,10 +284,7 @@ export function IssueCard({
           {weekImportSignal ? (
             <p
               className="mt-2 text-xs font-medium text-accent"
-              title={
-                importIdsTooltip ??
-                (weekImportSignal.section ? `Columns: ${weekImportSignal.section}` : undefined)
-              }
+              title={importLineTitle}
             >
               This import · {weekImportSignal.callCount}{' '}
               {weekImportSignal.interactionIds?.length
@@ -225,6 +322,9 @@ export function IssueCard({
                   ))
                 : null}
             </div>
+            {weekImportSignal?.interactionIds?.length ? (
+              <InteractionIdsPanel ids={weekImportSignal.interactionIds} />
+            ) : null}
             <div>
               <SectionLabel>QC reviewer notes</SectionLabel>
               <ul className="mt-3 list-none space-y-3 p-0">
