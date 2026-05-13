@@ -158,6 +158,8 @@ export interface IssueCardProps {
   evidence: IssueDef['evidence']
   /** Aggregated CSV detection count when a weekly snapshot is selected */
   weekImportSignal?: { callCount: number; section: string; interactionIds?: string[] } | null
+  scorecardQuestionIds?: string[]
+  isNewInV5Badge?: boolean
 }
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -181,6 +183,8 @@ export function IssueCard({
   commentCount,
   evidence,
   weekImportSignal,
+  scorecardQuestionIds,
+  isNewInV5Badge,
 }: IssueCardProps) {
   const panelId = useId()
   const [open, setOpen] = useState(false)
@@ -280,6 +284,20 @@ export function IssueCard({
             >
               {description}
             </p>
+          ) : null}
+          {(scorecardQuestionIds && scorecardQuestionIds.length > 0) || isNewInV5Badge ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {isNewInV5Badge ? (
+                <span className="rounded border border-emerald-400/70 bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-900 dark:text-emerald-100">
+                  New · flat scorecard
+                </span>
+              ) : null}
+              {scorecardQuestionIds && scorecardQuestionIds.length > 0 ? (
+                <span className="mono rounded border border-border-strong bg-zinc-900 px-2 py-0.5 text-[10px] font-medium text-white dark:bg-zinc-100 dark:text-zinc-950">
+                  {scorecardQuestionIds.map((qid) => `Q${qid}`).join(' · ')}
+                </span>
+              ) : null}
+            </div>
           ) : null}
           {weekImportSignal ? (
             <p

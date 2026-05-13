@@ -30,6 +30,13 @@ export interface CallSummary {
   range: string
 }
 
+export type SnapshotScoreBucketKey = 'lte50' | 'lte60' | 'lte70' | 'lte75' | 'pass'
+
+export interface SnapshotScoreBucket {
+  count: number
+  refs: string[]
+}
+
 export interface ParsedReport {
   callCount: number
   lowScoreCount: number
@@ -41,4 +48,14 @@ export interface ParsedReport {
   /** Present for v4 Reference-based exports */
   reviewerNotes: ReviewerNote[]
   calls: CallSummary[]
+  /** Set when ingest distinguishes flat vs multi-row CSV */
+  format?: 'v4-multirow' | 'v5-flat'
+  /** Calls scoring ≥76% overall */
+  passRate?: number
+  /** Histogram by overall call score */
+  scoreDistribution?: Record<SnapshotScoreBucketKey, SnapshotScoreBucket>
+  /** Prompt-category averages for charts */
+  sectionStatsChart?: Array<{ section: string; scorePercent: number }>
+  /** v5-only structured reviewer snippets keyed by catalog issue id */
+  reviewerNotesByIssueId?: Record<string, Array<{ label: string; text: string }>>
 }

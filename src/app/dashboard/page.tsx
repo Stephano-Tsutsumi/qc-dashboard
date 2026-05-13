@@ -1,9 +1,25 @@
 import { createClient } from '@/utils/supabase/server'
 import { cookies } from 'next/headers'
 import { ISSUE_BY_ID } from '@/lib/issues'
+import {
+  ISSUE_CHANNEL,
+  ISSUE_NEW_IN_V5,
+  ISSUE_SCORECARD_QUESTIONS,
+} from '@/lib/csv/scorecard-issues'
+import { DashboardWeekReport } from '@/components/report/DashboardWeekReport'
 import { QcReportSections } from '@/components/report/QcReportSections'
 import { QcReportWeekSelector } from '@/components/report/QcReportWeekSelector'
-import { buildWeekIssueSignalMapFromStatsJson, parseReviewerNotesFromStatsJson, resolveWeekSelection, type SnapshotListRow } from '@/lib/snapshot-stats'
+import {
+  buildDashboardWeekInsights,
+  buildRefToScoreMap,
+  buildWeekIssueSignalMapFromStatsJson,
+  parseReviewerNotesByIssueIdFromStatsJson,
+  parseReviewerNotesFromStatsJson,
+  parseSnapshotFormat,
+  resolveWeekSelection,
+  scoreRangesForRefs,
+  type SnapshotListRow,
+} from '@/lib/snapshot-stats'
 import { getNotesForIssue } from '@/lib/issueNoteRules'
 
 type SearchParams = Record<string, string | string[] | undefined>
@@ -74,6 +90,95 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
       ? parseReviewerNotesFromStatsJson(selection.snapshot.stats_json)
       : []
 
+  const notesByIssue =
+    selection.mode === 'week'
+      ? parseReviewerNotesByIssueIdFromStatsJson(selection.snapshot.stats_json)
+      : null
+
+  const scoreByRef =
+    selection.mode === 'week'
+      ? buildRefToScoreMap(selection.snapshot.stats_json)
+      : new Map<string, number>()
+
+  const csvFormat =
+    selection.mode === 'week'
+      ? parseSnapshotFormat(selection.snapshot.stats_json)
+      : ('v4-multirow' as const)
+
+  const weekInsights =
+    selection.mode === 'week'
+      ? buildDashboardWeekInsights(selection.snapshot.stats_json)
+      : null
+
+  const qcItems = issueRows.map((row) => {
+    const state = Array.isArray(row.issue_states)
+      ? row.issue_states[0]
+      : row.issue_states
+    const def = ISSUE_BY_ID[row.id]
+    const description = def?.description ?? ''
+    const baseEvidence = def?.evidence ?? {
+      qcNotes: [{ ref: 'QC', comment: description || 'No description.' }],
+      recommendedAction: 'Track and remediate per team process.',
+    }
+
+    const csvMatchedNotes =
+      !catalogOnly && snapshotReviewerNotes.length > 0
+        ? getNotesForIssue(row.id, snapshotReviewerNotes, 5)
+        : []
+
+    const structured = notesByIssue?.[row.id]
+    let evidence = baseEvidence
+    if (!catalogOnly && csvFormat === 'v5-flat' && structured?.length) {
+      evidence = {
+        qcNotes: structured.map((n) => ({
+          ref: (n.label || 'QC').trim(),
+          comment: n.text.trim(),
+          section: undefined,
+        })),
+        recommendedAction: baseEvidence.recommendedAction,
+      }
+    } else if (!catalogOnly && csvMatchedNotes.length > 0) {
+      evidence = {
+        qcNotes: csvMatchedNotes.map((n) => ({
+          ref: n.ref.trim() || 'QC',
+          comment: n.comment.trim(),
+          section: n.section.trim() || undefined,
+        })),
+        recommendedAction: baseEvidence.recommendedAction,
+      }
+    }
+
+    const signal = !catalogOnly && weekMap ? weekMap.get(row.id) : undefined
+    const scoreRanges =
+      signal?.interactionIds?.length && scoreByRef.size > 0
+        ? scoreRangesForRefs(signal.interactionIds, scoreByRef)
+        : []
+
+    return {
+      id: row.id,
+      priority: row.priority,
+      title: row.title,
+      description,
+      status: state?.status,
+      jiraTicket: state?.jira_ticket,
+      commentCount: countByIssue.get(row.id) ?? 0,
+      evidence,
+      weekImportSignal:
+        signal != null
+          ? {
+              callCount: signal.callCount,
+              section: signal.section,
+              interactionIds: signal.interactionIds,
+            }
+          : null,
+      scoreRanges,
+      channel: ISSUE_CHANNEL[row.id] ?? 'both',
+      scorecardQuestionIds: catalogOnly ? undefined : ISSUE_SCORECARD_QUESTIONS[row.id],
+      isNewInV5Badge:
+        !catalogOnly && csvFormat === 'v5-flat' && ISSUE_NEW_IN_V5.has(row.id),
+    }
+  })
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -131,6 +236,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
               {kpiSnapshot.avg_score != null
                 ? ` · Avg ${Number(kpiSnapshot.avg_score).toFixed(1)}%`
                 : ''}
+              {!catalogOnly &&
+              selection.mode === 'week' &&
+              weekInsights?.passRate != null ? (
+                <> · Pass ≥76%: {weekInsights.passRate}%</>
+              ) : null}
             </>
           ) : (
             <>
@@ -181,57 +291,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
             ))}
           </div>
 
-          <QcReportSections
-            items={issueRows.map((row) => {
-              const state = Array.isArray(row.issue_states)
-                ? row.issue_states[0]
-                : row.issue_states
-              const def = ISSUE_BY_ID[row.id]
-              const description = def?.description ?? ''
-              const baseEvidence = def?.evidence ?? {
-                qcNotes: [{ ref: 'QC', comment: description || 'No description.' }],
-                recommendedAction: 'Track and remediate per team process.',
-              }
-
-              const csvMatchedNotes =
-                !catalogOnly && snapshotReviewerNotes.length > 0
-                  ? getNotesForIssue(row.id, snapshotReviewerNotes, 5)
-                  : []
-
-              const evidence =
-                csvMatchedNotes.length > 0
-                  ? {
-                      qcNotes: csvMatchedNotes.map((n) => ({
-                        ref: n.ref.trim() || 'QC',
-                        comment: n.comment.trim(),
-                        section: n.section.trim() || undefined,
-                      })),
-                      recommendedAction: baseEvidence.recommendedAction,
-                    }
-                  : baseEvidence
-
-              const signal = !catalogOnly && weekMap ? weekMap.get(row.id) : undefined
-
-              return {
-                id: row.id,
-                priority: row.priority,
-                title: row.title,
-                description,
-                status: state?.status,
-                jiraTicket: state?.jira_ticket,
-                commentCount: countByIssue.get(row.id) ?? 0,
-                evidence,
-                weekImportSignal:
-                  signal != null
-                    ? {
-                        callCount: signal.callCount,
-                        section: signal.section,
-                        interactionIds: signal.interactionIds,
-                      }
-                    : null,
-              }
-            })}
-          />
+          {catalogOnly ? (
+            <QcReportSections items={qcItems} />
+          ) : selection.mode === 'week' && weekInsights ? (
+            <DashboardWeekReport
+              insights={weekInsights}
+              items={qcItems}
+              snapshotKey={selection.snapshot.id}
+            />
+          ) : (
+            <QcReportSections items={qcItems} />
+          )}
         </>
       )}
     </div>

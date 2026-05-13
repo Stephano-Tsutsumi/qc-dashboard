@@ -1,4 +1,11 @@
-import type { DetectedIssue, IssueInteractionBreakdown, ReviewerNote } from '@/types/csv'
+import type {
+  CallSummary,
+  DetectedIssue,
+  IssueInteractionBreakdown,
+  ReviewerNote,
+  SnapshotScoreBucket,
+  SnapshotScoreBucketKey,
+} from '@/types/csv'
 import { ALL_ISSUES, ISSUE_BY_ID, type IssueDef } from '@/lib/issues'
 
 export type WeekIssueSignal = {
@@ -216,4 +223,256 @@ export function resolveWeekSelection(
   const found = snapshots.find((s) => s.id === w)
   if (found) return { mode: 'week', snapshot: found }
   return { mode: 'week', snapshot: snapshots[0] }
+}
+
+const SCORE_BUCKETS: SnapshotScoreBucketKey[] = ['lte50', 'lte60', 'lte70', 'lte75', 'pass']
+
+function bucketForOverallScore(score: number): SnapshotScoreBucketKey {
+  if (score <= 50) return 'lte50'
+  if (score <= 60) return 'lte60'
+  if (score <= 70) return 'lte70'
+  if (score <= 75) return 'lte75'
+  return 'pass'
+}
+
+function emptyScoreDistribution(): Record<SnapshotScoreBucketKey, SnapshotScoreBucket> {
+  const z = (): SnapshotScoreBucket => ({ count: 0, refs: [] })
+  return {
+    lte50: z(),
+    lte60: z(),
+    lte70: z(),
+    lte75: z(),
+    pass: z(),
+  }
+}
+
+export function parseCallsFromStatsJson(statsJson: unknown): CallSummary[] {
+  if (!statsJson || typeof statsJson !== 'object') return []
+  const raw = (statsJson as Record<string, unknown>).calls
+  if (!Array.isArray(raw)) return []
+  const out: CallSummary[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const o = item as Record<string, unknown>
+    const ref = typeof o.ref === 'string' ? o.ref.trim() : ''
+    if (!ref) continue
+    const score =
+      typeof o.score === 'number' && Number.isFinite(o.score) ? o.score : Number(o.score) || 0
+    const date = typeof o.date === 'string' ? o.date : ''
+    const duration = typeof o.duration === 'string' ? o.duration : ''
+    const range = typeof o.range === 'string' ? o.range : ''
+    out.push({ ref, score, date, duration, range })
+  }
+  return out
+}
+
+export function buildRefToScoreMap(statsJson: unknown): Map<string, number> {
+  const m = new Map<string, number>()
+  for (const c of parseCallsFromStatsJson(statsJson)) {
+    m.set(c.ref.trim(), c.score)
+  }
+  return m
+}
+
+export function scoreRangesForRefs(
+  refs: string[] | undefined,
+  scoreByRef: Map<string, number>
+): SnapshotScoreBucketKey[] {
+  if (!refs?.length) return []
+  const keys = new Set<SnapshotScoreBucketKey>()
+  for (const ref of refs) {
+    const s = scoreByRef.get(ref.trim())
+    if (s === undefined) continue
+    keys.add(bucketForOverallScore(s))
+  }
+  return [...keys]
+}
+
+export function parseScoreDistributionFromStatsJson(
+  statsJson: unknown
+): Record<SnapshotScoreBucketKey, SnapshotScoreBucket> | null {
+  if (!statsJson || typeof statsJson !== 'object') return null
+  const raw = (statsJson as Record<string, unknown>).scoreDistribution
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  const out = emptyScoreDistribution()
+  for (const key of SCORE_BUCKETS) {
+    const b = r[key]
+    if (!b || typeof b !== 'object') return null
+    const o = b as Record<string, unknown>
+    const count = typeof o.count === 'number' ? o.count : Number(o.count) || 0
+    const refs = Array.isArray(o.refs)
+      ? o.refs.filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+      : []
+    out[key] = { count, refs }
+  }
+  return out
+}
+
+function buildScoreDistributionFromCalls(
+  calls: CallSummary[]
+): Record<SnapshotScoreBucketKey, SnapshotScoreBucket> {
+  const dist = emptyScoreDistribution()
+  for (const c of calls) {
+    const key = bucketForOverallScore(c.score)
+    dist[key].count++
+    dist[key].refs.push(c.ref)
+  }
+  return dist
+}
+
+export function parseSectionStatsChartFromStatsJson(
+  statsJson: unknown
+): Array<{ section: string; scorePercent: number }> | null {
+  if (!statsJson || typeof statsJson !== 'object') return null
+  const raw = (statsJson as Record<string, unknown>).sectionStatsChart
+  if (!Array.isArray(raw)) return null
+  const out: Array<{ section: string; scorePercent: number }> = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const o = item as Record<string, unknown>
+    const section = typeof o.section === 'string' ? o.section : ''
+    const scorePercent =
+      typeof o.scorePercent === 'number' && Number.isFinite(o.scorePercent)
+        ? o.scorePercent
+        : Number(o.scorePercent) || 0
+    if (section) out.push({ section, scorePercent })
+  }
+  return out.length ? out : null
+}
+
+function fallbackSectionChartFromSectionStats(
+  sectionStats: unknown
+): Array<{ section: string; scorePercent: number }> {
+  if (!sectionStats || typeof sectionStats !== 'object') return []
+  const rec = sectionStats as Record<string, { zero?: unknown; total?: unknown }>
+  return Object.entries(rec).map(([section, v]) => {
+    const zero = typeof v.zero === 'number' ? v.zero : Number(v.zero) || 0
+    const total = typeof v.total === 'number' ? v.total : Number(v.total) || 0
+    const scorePercent =
+      total > 0 ? Math.round(((total - zero) / total) * 10000) / 100 : 0
+    return { section, scorePercent }
+  })
+}
+
+export function parseReviewerNotesByIssueIdFromStatsJson(
+  statsJson: unknown
+): Record<string, Array<{ label: string; text: string }>> | null {
+  if (!statsJson || typeof statsJson !== 'object') return null
+  const raw = (statsJson as Record<string, unknown>).reviewerNotesByIssueId
+  if (!raw || typeof raw !== 'object') return null
+  const out: Record<string, Array<{ label: string; text: string }>> = {}
+  for (const [issueId, arr] of Object.entries(raw)) {
+    if (!Array.isArray(arr)) continue
+    const notes: Array<{ label: string; text: string }> = []
+    for (const item of arr) {
+      if (!item || typeof item !== 'object') continue
+      const o = item as Record<string, unknown>
+      const label = typeof o.label === 'string' ? o.label : ''
+      const text = typeof o.text === 'string' ? o.text : ''
+      if (!text.trim()) continue
+      notes.push({ label, text })
+    }
+    if (notes.length) out[issueId] = notes
+  }
+  return Object.keys(out).length ? out : null
+}
+
+export function parseSnapshotFormat(statsJson: unknown): 'v4-multirow' | 'v5-flat' {
+  if (!statsJson || typeof statsJson !== 'object') return 'v4-multirow'
+  return (statsJson as Record<string, unknown>).format === 'v5-flat' ? 'v5-flat' : 'v4-multirow'
+}
+
+export type ScoreDistributionBar = SnapshotScoreBucket & { heightPx: number }
+
+export type DashboardWeekInsights = {
+  format: 'v4-multirow' | 'v5-flat'
+  changelogItems: string[]
+  sectionStatsChart: Array<{ section: string; scorePercent: number }>
+  scoreDistribution: Record<SnapshotScoreBucketKey, ScoreDistributionBar>
+  passRate: number | null
+  criticalFailCount: number
+}
+
+function buildChangelogItems(statsJson: unknown): string[] {
+  const items: string[] = []
+  const breakdown = parseIssueInteractionBreakdownFromStatsJson(statsJson)
+  const calls = parseCallsFromStatsJson(statsJson)
+  const totalCalls = calls.length
+
+  const grammar = breakdown?.find((b) => b.issueId === 'p2-grammar-script')
+  if (grammar && grammar.interactionIds.length > 0 && totalCalls > 0) {
+    items.push(
+      `Grammar Accuracy (Q4.5) failing in **${grammar.interactionIds.length}/${totalCalls} calls** — review callback script wording`
+    )
+  }
+
+  const topics = breakdown?.find((b) => b.issueId === 'p1-call-topics')
+  if (topics && topics.interactionIds.length > 0) {
+    items.push(`Call Topics (Q8.7) flagged across **${topics.interactionIds.length} calls**`)
+  }
+
+  items.unshift(
+    'New flat one-row-per-call CSV format — issues map to **scorecard question IDs**.'
+  )
+  return items
+}
+
+export function buildDashboardWeekInsights(statsJson: unknown): DashboardWeekInsights {
+  if (!statsJson || typeof statsJson !== 'object') {
+    const emptyDist = emptyScoreDistribution()
+    const maxCount = 1
+    const scoreDistribution = {} as DashboardWeekInsights['scoreDistribution']
+    for (const key of SCORE_BUCKETS) {
+      const d = emptyDist[key]
+      scoreDistribution[key] = {
+        ...d,
+        heightPx: Math.max(3, Math.round((d.count / maxCount) * 28)),
+      }
+    }
+    return {
+      format: 'v4-multirow',
+      changelogItems: [],
+      sectionStatsChart: [],
+      scoreDistribution,
+      passRate: null,
+      criticalFailCount: 0,
+    }
+  }
+
+  const o = statsJson as Record<string, unknown>
+  const format = parseSnapshotFormat(statsJson)
+
+  const calls = parseCallsFromStatsJson(statsJson)
+  let distRaw = parseScoreDistributionFromStatsJson(statsJson)
+  if (!distRaw && calls.length > 0) distRaw = buildScoreDistributionFromCalls(calls)
+  if (!distRaw) distRaw = emptyScoreDistribution()
+
+  const maxCount = Math.max(...Object.values(distRaw).map((d) => d.count), 1)
+  const scoreDistribution = {} as DashboardWeekInsights['scoreDistribution']
+  for (const key of SCORE_BUCKETS) {
+    const d = distRaw[key]
+    scoreDistribution[key] = {
+      ...d,
+      heightPx: Math.max(3, Math.round((d.count / maxCount) * 28)),
+    }
+  }
+
+  const sectionStatsChart =
+    parseSectionStatsChartFromStatsJson(statsJson) ??
+    fallbackSectionChartFromSectionStats(o.sectionStats)
+
+  const changelogItems = format === 'v5-flat' ? buildChangelogItems(statsJson) : []
+
+  const passRate =
+    typeof o.passRate === 'number' && Number.isFinite(o.passRate) ? o.passRate : null
+
+  return {
+    format,
+    changelogItems,
+    sectionStatsChart,
+    scoreDistribution,
+    passRate,
+    criticalFailCount: distRaw.lte50.count,
+  }
 }

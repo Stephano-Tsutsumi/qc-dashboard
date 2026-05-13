@@ -26,6 +26,14 @@ type ParseResult = {
     duration: string
     range: string
   }>
+  format?: 'v4-multirow' | 'v5-flat'
+  passRate?: number
+  scoreDistribution?: Record<
+    string,
+    { count: number; refs: string[] }
+  >
+  sectionStatsChart?: Array<{ section: string; scorePercent: number }>
+  reviewerNotesByIssueId?: Record<string, Array<{ label: string; text: string }>>
   csvFilename: string
   aiSummary: string
   aiRecommendations: string
@@ -91,6 +99,11 @@ export default function ImportPage() {
         ai_summary: preview.aiSummary,
         ai_recommendations: preview.aiRecommendations,
         stats_json: {
+          format: preview.format,
+          passRate: preview.passRate,
+          scoreDistribution: preview.scoreDistribution,
+          sectionStatsChart: preview.sectionStatsChart,
+          reviewerNotesByIssueId: preview.reviewerNotesByIssueId,
           sectionStats: preview.sectionStats,
           detectedIssues: preview.detectedIssues,
           issueInteractionBreakdown: preview.issueInteractionBreakdown,

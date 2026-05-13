@@ -5,10 +5,312 @@ import type {
   IssueInteractionBreakdown,
   ReviewerNote,
   CallSummary,
+  SnapshotScoreBucket,
+  SnapshotScoreBucketKey,
 } from '@/types/csv'
-import { ALL_ISSUES } from '@/lib/issues'
+import {
+  QUESTION_COLUMNS,
+  detectCSVFormat,
+  GENERAL_COMMENT_COL,
+  getQuestionLabel,
+  parseAnalyticsQuestion,
+  parseGeneralCommentsOnly,
+  parseQuestionScore,
+  type QuestionScore,
+} from '@/lib/csv/scorecard'
+import {
+  ISSUE_SCORECARD_QUESTIONS,
+  noteSourceQuestionIdsForIssue,
+  SCORECARD_QUESTION_TO_ISSUE_IDS,
+} from '@/lib/csv/scorecard-issues'
+import { ALL_ISSUES, ISSUE_BY_ID } from '@/lib/issues'
 import { filterNotesForIssue } from '@/lib/issueNoteRules'
 import { allCatalogIssueIdsForFinding } from '@/lib/snapshot-stats'
+
+export { detectCSVFormat } from '@/lib/csv/scorecard'
+
+function assignOverallScoreBucket(score: number): SnapshotScoreBucketKey {
+  if (score <= 50) return 'lte50'
+  if (score <= 60) return 'lte60'
+  if (score <= 70) return 'lte70'
+  if (score <= 75) return 'lte75'
+  return 'pass'
+}
+
+function emptyScoreBuckets(): Record<SnapshotScoreBucketKey, SnapshotScoreBucket> {
+  return {
+    lte50: { count: 0, refs: [] },
+    lte60: { count: 0, refs: [] },
+    lte70: { count: 0, refs: [] },
+    lte75: { count: 0, refs: [] },
+    pass: { count: 0, refs: [] },
+  }
+}
+
+function buildScoreDistributionFromCalls(calls: CallSummary[]): Record<
+  SnapshotScoreBucketKey,
+  SnapshotScoreBucket
+> {
+  const dist = emptyScoreBuckets()
+  for (const c of calls) {
+    const key = assignOverallScoreBucket(c.score)
+    dist[key].count++
+    dist[key].refs.push(c.ref)
+  }
+  return dist
+}
+
+type InternalFlatCall = {
+  reference: string
+  scorePct: number
+  questions: Record<string, QuestionScore>
+  date: string
+  duration: string
+  range: string
+}
+
+function computeSectionZeroTotalFromFlat(
+  flatCalls: InternalFlatCall[]
+): Record<string, { zero: number; total: number }> {
+  const out: Record<string, { zero: number; total: number }> = {}
+  for (const call of flatCalls) {
+    for (const qDef of QUESTION_COLUMNS) {
+      const q = call.questions[qDef.id]
+      if (!q) continue
+      if (!qDef.isAnalytics && q.isNA) continue
+      const sec = qDef.section
+      if (!out[sec]) out[sec] = { zero: 0, total: 0 }
+      out[sec].total++
+      if (q.isFailing) out[sec].zero++
+    }
+  }
+  return out
+}
+
+function computeSectionStatsChartFromFlat(
+  flatCalls: InternalFlatCall[]
+): Array<{ section: string; scorePercent: number }> {
+  const sectionMap: Record<string, { sum: number; max: number }> = {}
+  for (const call of flatCalls) {
+    for (const qDef of QUESTION_COLUMNS) {
+      if (qDef.isAnalytics) continue
+      const q = call.questions[qDef.id]
+      if (!q || q.isNA || q.numericScore === null || q.maxScore === null) continue
+      if (!sectionMap[qDef.section]) sectionMap[qDef.section] = { sum: 0, max: 0 }
+      sectionMap[qDef.section].sum += q.numericScore
+      sectionMap[qDef.section].max += q.maxScore
+    }
+  }
+  return Object.entries(sectionMap).map(([section, { sum, max }]) => ({
+    section,
+    scorePercent: max > 0 ? Math.round((sum / max) * 10000) / 100 : 0,
+  }))
+}
+
+function buildIssueRefsFromScorecard(calls: InternalFlatCall[]): Map<string, Set<string>> {
+  const m = new Map<string, Set<string>>()
+  const add = (issueId: string, ref: string) => {
+    if (!ISSUE_BY_ID[issueId]) return
+    if (!m.has(issueId)) m.set(issueId, new Set())
+    m.get(issueId)!.add(ref)
+  }
+  for (const call of calls) {
+    const ref = call.reference
+    for (const qDef of QUESTION_COLUMNS) {
+      const q = call.questions[qDef.id]
+      if (!q?.isFailing) continue
+      const ids = SCORECARD_QUESTION_TO_ISSUE_IDS[qDef.id]
+      if (!ids?.length) continue
+      for (const issueId of ids) add(issueId, ref)
+    }
+  }
+  return m
+}
+
+function mergeIssueRefsFromNotes(
+  reviewerNotes: ReviewerNote[],
+  into: Map<string, Set<string>>
+): Map<string, Set<string>> {
+  for (const issue of ALL_ISSUES) {
+    const matched = filterNotesForIssue(issue.id, reviewerNotes)
+    const refs = [...new Set(matched.map((n) => n.ref.trim()).filter(Boolean))]
+    if (!refs.length) continue
+    if (!into.has(issue.id)) into.set(issue.id, new Set())
+    const set = into.get(issue.id)!
+    for (const r of refs) set.add(r)
+  }
+  return into
+}
+
+function issueBreakdownFromRefMap(refMap: Map<string, Set<string>>): IssueInteractionBreakdown[] {
+  const out: IssueInteractionBreakdown[] = []
+  for (const [issueId, set] of refMap) {
+    const interactionIds = [...set]
+    if (interactionIds.length === 0) continue
+    out.push({ issueId, interactionIds })
+  }
+  out.sort((a, b) => b.interactionIds.length - a.interactionIds.length)
+  return out
+}
+
+function buildReviewerNotesByIssueId(
+  flatCalls: InternalFlatCall[]
+): Record<string, Array<{ label: string; text: string }>> {
+  const out: Record<string, Array<{ label: string; text: string }>> = {}
+  const issueIds = Object.keys(ISSUE_SCORECARD_QUESTIONS)
+  for (const issueId of issueIds) {
+    const sources = noteSourceQuestionIdsForIssue(issueId)
+    if (!sources.length) continue
+    const bucket: Array<{ label: string; text: string }> = []
+    outer: for (const call of flatCalls) {
+      const flagged = ISSUE_SCORECARD_QUESTIONS[issueId]?.some(
+        (qid) => call.questions[qid]?.isFailing
+      )
+      if (!flagged) continue
+      for (const srcId of sources) {
+        const q = call.questions[srcId]
+        const text = q?.comment?.trim()
+        if (!text) continue
+        bucket.push({
+          label: `${call.reference} — Q${srcId} ${getQuestionLabel(srcId)}`,
+          text,
+        })
+        if (bucket.length >= 5) break outer
+      }
+    }
+    if (bucket.length) out[issueId] = bucket
+  }
+  return out
+}
+
+/** One row per call — flat scorecard columns. */
+function parseV5FlatQC(rows: Record<string, string>[]): ParsedReport {
+  const seenRef = new Set<string>()
+  const flatCalls: InternalFlatCall[] = []
+
+  for (const row of rows) {
+    const reference = row['Reference']?.trim()
+    if (!reference || seenRef.has(reference)) continue
+    seenRef.add(reference)
+
+    const questions: Record<string, QuestionScore> = {}
+    for (const qDef of QUESTION_COLUMNS) {
+      const rawValue = row[qDef.col]
+      const commentCol = `${qDef.col} Cmt`
+      const commentValue = row[commentCol]
+      questions[qDef.id] = qDef.isAnalytics
+        ? parseAnalyticsQuestion(qDef.id, qDef.label, rawValue, commentValue)
+        : parseQuestionScore(qDef.id, qDef.label, rawValue, commentValue)
+    }
+
+    const gen = parseGeneralCommentsOnly(row[GENERAL_COMMENT_COL])
+    if (gen) questions['7.6'] = gen
+
+    let scorePct = parseFloat(row['Score Percentage'] ?? '') || 0
+    if (scorePct > 0 && scorePct <= 1.0001) scorePct *= 100
+
+    const eventDate = row['Event Date'] ?? ''
+    flatCalls.push({
+      reference,
+      scorePct,
+      questions,
+      date: eventDate.split(/\s+/)[0]?.trim() ?? '',
+      duration: row['Event Duration'] ?? '',
+      range: row['Range'] ?? '',
+    })
+  }
+
+  const callCount = flatCalls.length
+  const scores = flatCalls.map((c) => c.scorePct)
+  const lowScoreCount = scores.filter((s) => s <= 60).length
+  const avgScore = callCount ? scores.reduce((a, b) => a + b, 0) / callCount : 0
+  const passRate = callCount
+    ? Math.round(((scores.filter((s) => s >= 76).length / callCount) * 10000) / 100)
+    : 0
+
+  const calls: CallSummary[] = flatCalls.map((c) => ({
+    ref: c.reference,
+    score: c.scorePct,
+    date: c.date,
+    duration: c.duration,
+    range: c.range,
+  }))
+
+  const reviewerNotes: ReviewerNote[] = []
+  for (const call of flatCalls) {
+    for (const qDef of QUESTION_COLUMNS) {
+      const q = call.questions[qDef.id]
+      if (!q?.isFailing || !q.comment?.trim()) continue
+      reviewerNotes.push({
+        ref: call.reference,
+        section: qDef.section,
+        question: qDef.label,
+        answer: '',
+        comment: q.comment.trim(),
+        questionPct: 0,
+      })
+    }
+    const g = call.questions['7.6']
+    if (g?.comment?.trim()) {
+      reviewerNotes.push({
+        ref: call.reference,
+        section: 'General',
+        question: 'General Comments',
+        answer: '',
+        comment: g.comment.trim(),
+        questionPct: 0,
+      })
+    }
+  }
+
+  const sectionStats = computeSectionZeroTotalFromFlat(flatCalls)
+  const sectionStatsChart = computeSectionStatsChartFromFlat(flatCalls)
+  const dates = [...new Set(flatCalls.map((c) => c.date).filter(Boolean))]
+
+  let issueRefs = buildIssueRefsFromScorecard(flatCalls)
+  issueRefs = mergeIssueRefsFromNotes(reviewerNotes, issueRefs)
+  const issueInteractionBreakdown = issueBreakdownFromRefMap(issueRefs)
+
+  const detectedIssues: DetectedIssue[] = []
+  for (const { issueId, interactionIds } of issueInteractionBreakdown) {
+    const def = ISSUE_BY_ID[issueId]
+    if (!def || interactionIds.length === 0) continue
+    detectedIssues.push({
+      priority: def.priority,
+      title: def.title,
+      count: interactionIds.length,
+      section: 'Scorecard',
+    })
+  }
+  detectedIssues.sort((a, b) => b.count - a.count)
+  if (detectedIssues.length === 0 && lowScoreCount > 0) {
+    detectedIssues.push({
+      priority: 'p1',
+      title: 'Low-scoring calls in ingest (≤60%)',
+      count: lowScoreCount,
+      section: 'Aggregate',
+    })
+  }
+
+  const reviewerNotesByIssueId = buildReviewerNotesByIssueId(flatCalls)
+
+  return {
+    format: 'v5-flat',
+    callCount,
+    lowScoreCount,
+    avgScore,
+    passRate,
+    detectedIssues,
+    sectionStats,
+    sectionStatsChart,
+    dates,
+    issueInteractionBreakdown,
+    reviewerNotes,
+    reviewerNotesByIssueId,
+    calls,
+    scoreDistribution: buildScoreDistributionFromCalls(calls),
+  }
+}
 
 /** Parses numeric score from a cell (0–100 or 0–1). */
 function parseScore(raw: string | undefined): number | null {
@@ -120,17 +422,37 @@ function parseV4QC(rows: Record<string, string>[]): ParsedReport {
     })
   }
 
+  const passRate = callCount
+    ? Math.round(((scores.filter((s) => s >= 76).length / callCount) * 10000) / 100)
+    : 0
+
+  const sectionStatsChart = sectionStatsChartFromZeroTotal(sectionStats)
+
   return {
+    format: 'v4-multirow',
     callCount,
     lowScoreCount,
     avgScore,
+    passRate,
     detectedIssues,
     sectionStats,
+    sectionStatsChart,
     dates,
     issueInteractionBreakdown,
     reviewerNotes,
     calls,
+    scoreDistribution: buildScoreDistributionFromCalls(calls),
   }
+}
+
+function sectionStatsChartFromZeroTotal(
+  sectionStats: Record<string, { zero: number; total: number }>
+): Array<{ section: string; scorePercent: number }> {
+  return Object.entries(sectionStats).map(([section, { zero, total }]) => ({
+    section,
+    scorePercent:
+      total > 0 ? Math.round(((total - zero) / total) * 10000) / 100 : 0,
+  }))
 }
 
 function buildDetectedIssuesFromReviewerNotes(notes: ReviewerNote[]): DetectedIssue[] {
@@ -257,16 +579,27 @@ function parseLegacyQC(
     })
   }
 
+  const passRate =
+    scores.length > 0
+      ? Math.round(((scores.filter((s) => s >= 76).length / scores.length) * 10000) / 100)
+      : 0
+
+  const chartStats = sectionStatsChartFromZeroTotal(sectionStats)
+
   return {
+    format: 'v4-multirow',
     callCount,
     lowScoreCount,
     avgScore,
+    passRate,
     detectedIssues: detectedIssues.slice(0, 50),
     sectionStats,
+    sectionStatsChart: chartStats,
     dates,
     issueInteractionBreakdown,
     reviewerNotes: [],
     calls: [],
+    scoreDistribution: emptyScoreBuckets(),
   }
 }
 
@@ -288,6 +621,19 @@ export function parseQCCSV(csvText: string): ParsedReport {
     }
     return trimRowKeys(o)
   })
+
+  const headersTrimmed = fields.map((f) => f.trim())
+  const fmt = detectCSVFormat(headersTrimmed)
+  const headerSet = new Set(headersTrimmed)
+
+  if (
+    rows.length &&
+    fmt === 'v5-flat' &&
+    headerSet.has('Reference') &&
+    headerSet.has('Score Percentage')
+  ) {
+    return parseV5FlatQC(rows)
+  }
 
   if (rows.length && isV4QcExport(fields)) {
     return parseV4QC(rows)

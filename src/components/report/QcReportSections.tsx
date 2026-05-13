@@ -12,6 +12,8 @@ import {
 import { IssueCard } from '@/components/report/IssueCard'
 import { cn } from '@/lib/utils'
 
+import type { SnapshotScoreBucketKey } from '@/types/csv'
+
 export type QcReportIssueItem = {
   id: string
   priority: Priority | string
@@ -22,6 +24,10 @@ export type QcReportIssueItem = {
   commentCount: number
   evidence: IssueDef['evidence']
   weekImportSignal?: { callCount: number; section: string; interactionIds?: string[] } | null
+  channel?: 'voice' | 'chat' | 'both'
+  scoreRanges: SnapshotScoreBucketKey[]
+  scorecardQuestionIds?: string[]
+  isNewInV5Badge?: boolean
 }
 
 type Filter = 'all' | Priority
@@ -113,7 +119,13 @@ function SectionHeaderInner({
   )
 }
 
-export function QcReportSections({ items }: { items: QcReportIssueItem[] }) {
+export function QcReportSections({
+  items,
+  hideBuiltInPriorityFilter,
+}: {
+  items: QcReportIssueItem[]
+  hideBuiltInPriorityFilter?: boolean
+}) {
   const [filter, setFilter] = useState<Filter>('all')
   const [openSection, setOpenSection] = useState<Record<Priority, boolean>>({
     p0: true,
@@ -129,20 +141,22 @@ export function QcReportSections({ items }: { items: QcReportIssueItem[] }) {
 
   return (
     <div className="space-y-5">
-      <div
-        className="flex flex-wrap gap-2"
-        role="group"
-        aria-label="Filter by priority"
-      >
-        <FilterChip active={filter === 'all'} onClick={() => setFilter('all')}>
-          All
-        </FilterChip>
-        {PRIORITY_ORDER.map((p) => (
-          <FilterChip key={p} active={filter === p} onClick={() => setFilter(p)}>
-            {PRIORITY_FILTER_LABEL[p]}
+      {!hideBuiltInPriorityFilter ? (
+        <div
+          className="flex flex-wrap gap-2"
+          role="group"
+          aria-label="Filter by priority"
+        >
+          <FilterChip active={filter === 'all'} onClick={() => setFilter('all')}>
+            All
           </FilterChip>
-        ))}
-      </div>
+          {PRIORITY_ORDER.map((p) => (
+            <FilterChip key={p} active={filter === p} onClick={() => setFilter(p)}>
+              {PRIORITY_FILTER_LABEL[p]}
+            </FilterChip>
+          ))}
+        </div>
+      ) : null}
 
       <div className="space-y-4">
         {visiblePriorities.map((p) => {
@@ -213,6 +227,8 @@ export function QcReportSections({ items }: { items: QcReportIssueItem[] }) {
                           commentCount={row.commentCount}
                           evidence={row.evidence}
                           weekImportSignal={row.weekImportSignal}
+                          scorecardQuestionIds={row.scorecardQuestionIds}
+                          isNewInV5Badge={row.isNewInV5Badge}
                         />
                       </li>
                     ))}
