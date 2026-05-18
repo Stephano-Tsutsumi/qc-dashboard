@@ -13,6 +13,7 @@ export type TrackerSnapshotOption = {
 }
 
 const STATUS_PARAM = 'status'
+const REF_PARAM = 'ref'
 
 function parseStatusesFromSearch(search: URLSearchParams): Set<IssueStatus> {
   const raw = search.get(STATUS_PARAM)
@@ -29,10 +30,12 @@ export function TrackerFilters({
   snapshots,
   weekSelectValue,
   hasSnapshots,
+  refParam,
 }: {
   snapshots: TrackerSnapshotOption[]
   weekSelectValue: string
   hasSnapshots: boolean
+  refParam: string
 }) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -51,6 +54,16 @@ export function TrackerFilters({
     },
     [router, searchParams]
   )
+
+  const snapshotActive = weekSelectValue !== 'catalog'
+
+  const setRef = (value: string) => {
+    pushParams((p) => {
+      const trimmed = value.trim()
+      if (trimmed) p.set(REF_PARAM, trimmed)
+      else p.delete(REF_PARAM)
+    })
+  }
 
   const toggleStatus = (value: IssueStatus) => {
     pushParams((p) => {
@@ -136,6 +149,48 @@ export function TrackerFilters({
           </div>
         </div>
       </div>
+      <div className="mt-4 flex flex-col gap-1.5 border-t border-border pt-4 sm:max-w-sm">
+        <label htmlFor="ref-search" className="text-xs font-medium text-text-secondary">
+          Search by interaction ID
+        </label>
+        <input
+          id="ref-search"
+          type="search"
+          inputMode="numeric"
+          defaultValue={refParam}
+          disabled={pending || !snapshotActive}
+          placeholder="e.g. 704262586987"
+          className="rounded border border-border bg-surface-2 px-3 py-2 text-sm text-text shadow-sm placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:cursor-not-allowed disabled:opacity-50"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              setRef((e.target as HTMLInputElement).value)
+            }
+          }}
+          onBlur={(e) => setRef(e.target.value)}
+        />
+        {!snapshotActive ? (
+          <p className="text-[11px] text-text-muted">
+            Select a report / import above to enable interaction ID search.
+          </p>
+        ) : refParam ? (
+          <div className="flex items-center gap-2">
+            <p className="text-[11px] text-text-muted">
+              Showing issues containing <span className="mono font-medium text-text">{refParam}</span>
+            </p>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => setRef('')}
+              className="text-[11px] font-medium text-accent underline underline-offset-2 hover:opacity-90"
+            >
+              Clear
+            </button>
+          </div>
+        ) : (
+          <p className="text-[11px] text-text-muted">Press Enter to search.</p>
+        )}
+      </div>
+
       {pending ? <p className="mt-3 text-xs text-text-muted">Updating…</p> : null}
     </div>
   )

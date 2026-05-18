@@ -70,6 +70,7 @@ export default async function TrackerPage({ searchParams }: { searchParams: Sear
   const weekRaw = searchParams.week
   const weekParam = Array.isArray(weekRaw) ? weekRaw[0] : weekRaw
   const statusFilter = parseStatusParam(searchParams.status)
+  const refParam = ((Array.isArray(searchParams.ref) ? searchParams.ref[0] : searchParams.ref) ?? '').trim()
 
   const [
     { data: issuesRows },
@@ -153,12 +154,25 @@ export default async function TrackerPage({ searchParams }: { searchParams: Sear
     }
   })
 
+  let refMatchIssueIds: Set<string> | null = null
+  if (refParam && weekSignalMap) {
+    refMatchIssueIds = new Set()
+    for (const [issueId, signal] of weekSignalMap) {
+      if (signal.interactionIds?.some((id) => id.trim() === refParam)) {
+        refMatchIssueIds.add(issueId)
+      }
+    }
+  }
+
   let rows = baseRows
   if (importIssueIds) {
     rows = rows.filter((r) => importIssueIds!.has(r.id))
   }
   if (statusFilter) {
     rows = rows.filter((r) => statusFilter.has(r.status))
+  }
+  if (refMatchIssueIds !== null) {
+    rows = rows.filter((r) => refMatchIssueIds!.has(r.id))
   }
 
   const grouped = groupRowsByPriority(rows)
@@ -206,6 +220,7 @@ export default async function TrackerPage({ searchParams }: { searchParams: Sear
           snapshots={snapshotOptions}
           weekSelectValue={weekSelectValue}
           hasSnapshots={hasSnapshots}
+          refParam={refParam}
         />
       </Suspense>
 
@@ -262,7 +277,26 @@ export default async function TrackerPage({ searchParams }: { searchParams: Sear
         </div>
       ) : null}
 
-      {!unmatchedImport && totalInFilter === 0 ? (
+      {refParam && weekSelectValue === 'catalog' ? (
+        <div
+          className="rounded border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950"
+          style={{ borderRadius: 'var(--radius)' }}
+        >
+          Select a report / import to search by interaction ID. Interaction IDs are only available when a snapshot is selected.
+        </div>
+      ) : null}
+
+      {refParam && weekSelectValue !== 'catalog' && refMatchIssueIds !== null && refMatchIssueIds.size === 0 ? (
+        <div
+          className="rounded border border-border bg-surface px-4 py-3 text-sm text-text-secondary"
+          style={{ borderRadius: 'var(--radius)' }}
+        >
+          No catalog issues contain interaction ID{' '}
+          <span className="mono font-medium text-text">{refParam}</span> in this import.
+        </div>
+      ) : null}
+
+      {!unmatchedImport && totalInFilter === 0 && !refParam ? (
         <p className="rounded border border-border bg-surface px-4 py-6 text-sm text-text-secondary">
           No issues match the current filters. Clear status filters or choose a different import.
         </p>
