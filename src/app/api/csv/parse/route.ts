@@ -8,6 +8,7 @@ import {
   parseAIIssueReportFromResponse,
 } from '@/lib/prompts/csv-analysis'
 import { anthropic } from '@/lib/anthropic'
+import type { AIIssueCard } from '@/types/csv'
 
 export async function POST(request: NextRequest) {
   const supabase = createClient(cookies())
@@ -63,7 +64,7 @@ export async function POST(request: NextRequest) {
 
 P-level issue cards generated: ${JSON.stringify(
             Object.fromEntries(
-              Object.entries(aiIssueCards).map(([k, v]) => [k, v.map((c) => c.title)])
+              Object.entries(aiIssueCards).map(([k, v]) => [k, (v as AIIssueCard[]).map((c) => c.title)])
             ),
             null,
             2
