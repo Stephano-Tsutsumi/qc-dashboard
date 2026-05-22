@@ -7,6 +7,10 @@ type ParseResult = {
   callCount: number
   lowScoreCount: number
   avgScore: number
+  medianScore?: number
+  voiceCount?: number
+  chatCount?: number
+  dailyTrend?: Array<{ date: string; voice: number | null; chat: number | null }>
   detectedIssues: Array<{ priority: string; title: string; count: number; section: string }>
   issueInteractionBreakdown: Array<{ issueId: string; interactionIds: string[] }>
   sectionStats: Record<string, { zero: number; total: number }>
@@ -25,15 +29,19 @@ type ParseResult = {
     date: string
     duration: string
     range: string
+    eventType?: 'Voice' | 'Chat'
   }>
   format?: 'v4-multirow' | 'v5-flat'
   passRate?: number
-  scoreDistribution?: Record<
-    string,
-    { count: number; refs: string[] }
-  >
+  scoreDistribution?: Record<string, { count: number; refs: string[] }>
   sectionStatsChart?: Array<{ section: string; scorePercent: number }>
   reviewerNotesByIssueId?: Record<string, Array<{ label: string; text: string }>>
+  aiIssueCards?: {
+    p0: Array<{ title: string; desc: string; cats: string[]; refs: string[]; scores: number[]; notes: Array<{ ref: string | null; score: number | null; comment: string }>; action: string }>
+    p1: Array<{ title: string; desc: string; cats: string[]; refs: string[]; scores: number[]; notes: Array<{ ref: string | null; score: number | null; comment: string }>; action: string }>
+    p2: Array<{ title: string; desc: string; cats: string[]; refs: string[]; scores: number[]; notes: Array<{ ref: string | null; score: number | null; comment: string }>; action: string }>
+    p3: Array<{ title: string; desc: string; cats: string[]; refs: string[]; scores: number[]; notes: Array<{ ref: string | null; score: number | null; comment: string }>; action: string }>
+  }
   csvFilename: string
   aiSummary: string
   aiRecommendations: string
@@ -101,6 +109,10 @@ export default function ImportPage() {
         stats_json: {
           format: preview.format,
           passRate: preview.passRate,
+          medianScore: preview.medianScore,
+          voiceCount: preview.voiceCount,
+          chatCount: preview.chatCount,
+          dailyTrend: preview.dailyTrend,
           scoreDistribution: preview.scoreDistribution,
           sectionStatsChart: preview.sectionStatsChart,
           reviewerNotesByIssueId: preview.reviewerNotesByIssueId,
@@ -110,6 +122,7 @@ export default function ImportPage() {
           reviewerNotes: preview.reviewerNotes,
           calls: preview.calls,
           dates: preview.dates,
+          aiIssueCards: preview.aiIssueCards,
         },
         csv_filename: preview.csvFilename,
       }),

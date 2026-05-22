@@ -28,6 +28,7 @@ export interface CallSummary {
   date: string
   duration: string
   range: string
+  eventType?: 'Voice' | 'Chat'
 }
 
 export type SnapshotScoreBucketKey = 'lte50' | 'lte60' | 'lte70' | 'lte75' | 'pass'
@@ -35,6 +36,35 @@ export type SnapshotScoreBucketKey = 'lte50' | 'lte60' | 'lte70' | 'lte75' | 'pa
 export interface SnapshotScoreBucket {
   count: number
   refs: string[]
+}
+
+export type DailyTrendPoint = {
+  date: string
+  voice: number | null
+  chat: number | null
+}
+
+export interface AIIssueNote {
+  ref: string | null
+  score: number | null
+  comment: string
+}
+
+export interface AIIssueCard {
+  title: string
+  desc: string
+  cats: string[]
+  refs: string[]
+  scores: number[]
+  notes: AIIssueNote[]
+  action: string
+}
+
+export interface AIIssueReport {
+  p0: AIIssueCard[]
+  p1: AIIssueCard[]
+  p2: AIIssueCard[]
+  p3: AIIssueCard[]
 }
 
 export interface ParsedReport {
@@ -58,4 +88,8 @@ export interface ParsedReport {
   sectionStatsChart?: Array<{ section: string; scorePercent: number }>
   /** v5-only structured reviewer snippets keyed by catalog issue id */
   reviewerNotesByIssueId?: Record<string, Array<{ label: string; text: string }>>
+  medianScore?: number
+  voiceCount?: number
+  chatCount?: number
+  dailyTrend?: DailyTrendPoint[]
 }

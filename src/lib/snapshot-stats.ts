@@ -5,6 +5,10 @@ import type {
   ReviewerNote,
   SnapshotScoreBucket,
   SnapshotScoreBucketKey,
+  DailyTrendPoint,
+  AIIssueReport,
+  AIIssueCard,
+  AIIssueNote,
 } from '@/types/csv'
 import { ALL_ISSUES, ISSUE_BY_ID, type IssueDef } from '@/lib/issues'
 
@@ -383,6 +387,63 @@ export function parseSnapshotFormat(statsJson: unknown): 'v4-multirow' | 'v5-fla
   return (statsJson as Record<string, unknown>).format === 'v5-flat' ? 'v5-flat' : 'v4-multirow'
 }
 
+export function parseDailyTrendFromStatsJson(statsJson: unknown): DailyTrendPoint[] | null {
+  if (!statsJson || typeof statsJson !== 'object') return null
+  const raw = (statsJson as Record<string, unknown>).dailyTrend
+  if (!Array.isArray(raw) || raw.length === 0) return null
+  const out: DailyTrendPoint[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const o = item as Record<string, unknown>
+    const date = typeof o.date === 'string' ? o.date : ''
+    if (!date) continue
+    const voice =
+      typeof o.voice === 'number' && Number.isFinite(o.voice) ? o.voice : null
+    const chat =
+      typeof o.chat === 'number' && Number.isFinite(o.chat) ? o.chat : null
+    out.push({ date, voice, chat })
+  }
+  return out.length ? out : null
+}
+
+export function parseAIIssueCardsFromStatsJson(statsJson: unknown): AIIssueReport | null {
+  if (!statsJson || typeof statsJson !== 'object') return null
+  const raw = (statsJson as Record<string, unknown>).aiIssueCards
+  if (!raw || typeof raw !== 'object') return null
+  const levels = ['p0', 'p1', 'p2', 'p3'] as const
+  const result: AIIssueReport = { p0: [], p1: [], p2: [], p3: [] }
+  let hasAny = false
+  for (const level of levels) {
+    const cards = (raw as Record<string, unknown>)[level]
+    if (!Array.isArray(cards)) continue
+    for (const card of cards) {
+      if (!card || typeof card !== 'object') continue
+      const c = card as Record<string, unknown>
+      const notes: AIIssueNote[] = Array.isArray(c.notes)
+        ? (c.notes as Array<Record<string, unknown>>).map((n) => ({
+            ref: typeof n.ref === 'string' ? n.ref : null,
+            score: typeof n.score === 'number' ? n.score : null,
+            comment: typeof n.comment === 'string' ? n.comment : '',
+          }))
+        : []
+      const parsed: AIIssueCard = {
+        title: typeof c.title === 'string' ? c.title : '',
+        desc: typeof c.desc === 'string' ? c.desc : '',
+        cats: Array.isArray(c.cats) ? (c.cats as string[]) : [],
+        refs: Array.isArray(c.refs) ? (c.refs as string[]) : [],
+        scores: Array.isArray(c.scores) ? (c.scores as number[]) : [],
+        notes,
+        action: typeof c.action === 'string' ? c.action : '',
+      }
+      if (parsed.title) {
+        result[level].push(parsed)
+        hasAny = true
+      }
+    }
+  }
+  return hasAny ? result : null
+}
+
 export type ScoreDistributionBar = SnapshotScoreBucket & { heightPx: number }
 
 export type DashboardWeekInsights = {
@@ -392,6 +453,11 @@ export type DashboardWeekInsights = {
   scoreDistribution: Record<SnapshotScoreBucketKey, ScoreDistributionBar>
   passRate: number | null
   criticalFailCount: number
+  medianScore: number | null
+  voiceCount: number | null
+  chatCount: number | null
+  dailyTrend: DailyTrendPoint[] | null
+  aiIssueCards: AIIssueReport | null
 }
 
 function buildChangelogItems(statsJson: unknown): string[] {
@@ -419,7 +485,7 @@ function buildChangelogItems(statsJson: unknown): string[] {
 }
 
 export function buildDashboardWeekInsights(statsJson: unknown): DashboardWeekInsights {
-  if (!statsJson || typeof statsJson !== 'object') {
+  const emptyBase = (): DashboardWeekInsights => {
     const emptyDist = emptyScoreDistribution()
     const maxCount = 1
     const scoreDistribution = {} as DashboardWeekInsights['scoreDistribution']
@@ -437,8 +503,15 @@ export function buildDashboardWeekInsights(statsJson: unknown): DashboardWeekIns
       scoreDistribution,
       passRate: null,
       criticalFailCount: 0,
+      medianScore: null,
+      voiceCount: null,
+      chatCount: null,
+      dailyTrend: null,
+      aiIssueCards: null,
     }
   }
+
+  if (!statsJson || typeof statsJson !== 'object') return emptyBase()
 
   const o = statsJson as Record<string, unknown>
   const format = parseSnapshotFormat(statsJson)
@@ -467,6 +540,19 @@ export function buildDashboardWeekInsights(statsJson: unknown): DashboardWeekIns
   const passRate =
     typeof o.passRate === 'number' && Number.isFinite(o.passRate) ? o.passRate : null
 
+  const medianScore =
+    typeof o.medianScore === 'number' && Number.isFinite(o.medianScore) ? o.medianScore : null
+
+  const voiceCount =
+    typeof o.voiceCount === 'number' && Number.isFinite(o.voiceCount) ? o.voiceCount : null
+
+  const chatCount =
+    typeof o.chatCount === 'number' && Number.isFinite(o.chatCount) ? o.chatCount : null
+
+  const dailyTrend = parseDailyTrendFromStatsJson(statsJson)
+
+  const aiIssueCards = parseAIIssueCardsFromStatsJson(statsJson)
+
   return {
     format,
     changelogItems,
@@ -474,5 +560,10 @@ export function buildDashboardWeekInsights(statsJson: unknown): DashboardWeekIns
     scoreDistribution,
     passRate,
     criticalFailCount: distRaw.lte50.count,
+    medianScore,
+    voiceCount,
+    chatCount,
+    dailyTrend,
+    aiIssueCards,
   }
 }

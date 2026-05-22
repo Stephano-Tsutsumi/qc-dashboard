@@ -7,6 +7,7 @@ import type {
   CallSummary,
   SnapshotScoreBucket,
   SnapshotScoreBucketKey,
+  DailyTrendPoint,
 } from '@/types/csv'
 import {
   QUESTION_COLUMNS,
@@ -60,6 +61,46 @@ function buildScoreDistributionFromCalls(calls: CallSummary[]): Record<
   return dist
 }
 
+/**
+ * Strip trailing `.0` from float-encoded integer refs produced by Excel CSV exports.
+ * Python equivalent: str(int(x)) if pd.notna(x) else ''
+ */
+function normalizeRef(raw: string | undefined): string {
+  const s = (raw ?? '').trim()
+  return /^\d+\.0+$/.test(s) ? s.replace(/\.0+$/, '') : s
+}
+
+function median(sorted: number[]): number {
+  if (!sorted.length) return 0
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+function buildDailyTrend(calls: CallSummary[]): DailyTrendPoint[] {
+  const byDate = new Map<string, { voice: number[]; chat: number[] }>()
+  for (const c of calls) {
+    if (!c.date) continue
+    if (!byDate.has(c.date)) byDate.set(c.date, { voice: [], chat: [] })
+    const bucket = byDate.get(c.date)!
+    if (c.eventType === 'Voice') bucket.voice.push(c.score)
+    else if (c.eventType === 'Chat') bucket.chat.push(c.score)
+  }
+  const dates = [...byDate.keys()].sort()
+  return dates.map((d) => {
+    const b = byDate.get(d)!
+    const avg = (arr: number[]) =>
+      arr.length ? Math.round((arr.reduce((s, n) => s + n, 0) / arr.length) * 10) / 10 : null
+    return { date: d, voice: avg(b.voice), chat: avg(b.chat) }
+  })
+}
+
+function parseEventType(raw: string | undefined): 'Voice' | 'Chat' | undefined {
+  const s = (raw ?? '').trim()
+  if (s === 'Voice') return 'Voice'
+  if (s === 'Chat') return 'Chat'
+  return undefined
+}
+
 type InternalFlatCall = {
   reference: string
   scorePct: number
@@ -67,6 +108,7 @@ type InternalFlatCall = {
   date: string
   duration: string
   range: string
+  eventType?: 'Voice' | 'Chat'
 }
 
 function computeSectionZeroTotalFromFlat(
@@ -189,7 +231,7 @@ function parseV5FlatQC(rows: Record<string, string>[]): ParsedReport {
   const flatCalls: InternalFlatCall[] = []
 
   for (const row of rows) {
-    const reference = row['Reference']?.trim()
+    const reference = normalizeRef(row['Reference'])
     if (!reference || seenRef.has(reference)) continue
     seenRef.add(reference)
 
@@ -217,6 +259,7 @@ function parseV5FlatQC(rows: Record<string, string>[]): ParsedReport {
       date: eventDate.split(/\s+/)[0]?.trim() ?? '',
       duration: row['Event Duration'] ?? '',
       range: row['Range'] ?? '',
+      eventType: parseEventType(row['Event Type']),
     })
   }
 
@@ -234,6 +277,7 @@ function parseV5FlatQC(rows: Record<string, string>[]): ParsedReport {
     date: c.date,
     duration: c.duration,
     range: c.range,
+    eventType: c.eventType,
   }))
 
   const reviewerNotes: ReviewerNote[] = []
@@ -294,11 +338,21 @@ function parseV5FlatQC(rows: Record<string, string>[]): ParsedReport {
 
   const reviewerNotesByIssueId = buildReviewerNotesByIssueId(flatCalls)
 
+  const sortedScores = [...scores].sort((a, b) => a - b)
+  const medianScore = Math.round(median(sortedScores) * 10) / 10
+  const voiceCount = calls.filter((c) => c.eventType === 'Voice').length
+  const chatCount = calls.filter((c) => c.eventType === 'Chat').length
+  const dailyTrend = buildDailyTrend(calls)
+
   return {
     format: 'v5-flat',
     callCount,
     lowScoreCount,
     avgScore,
+    medianScore,
+    voiceCount,
+    chatCount,
+    dailyTrend,
     passRate,
     detectedIssues,
     sectionStats,
@@ -347,11 +401,11 @@ function isV4QcExport(fieldNames: string[]): boolean {
 function parseV4QC(rows: Record<string, string>[]): ParsedReport {
   const callMap = new Map<
     string,
-    { score: number; date: string; duration: string; range: string }
+    { score: number; date: string; duration: string; range: string; eventType?: 'Voice' | 'Chat' }
   >()
 
   for (const row of rows) {
-    const ref = row['Reference']?.trim()
+    const ref = normalizeRef(row['Reference'])
     if (!ref || callMap.has(ref)) continue
 
     let score = parseFloat(row['Score Percentage'] ?? '') || 0
@@ -363,6 +417,7 @@ function parseV4QC(rows: Record<string, string>[]): ParsedReport {
       date: eventDate.split(/\s+/)[0]?.trim() ?? '',
       duration: row['Event Duration'] ?? '',
       range: row['Range'] ?? '',
+      eventType: parseEventType(row['Event Type']),
     })
   }
 
@@ -376,7 +431,7 @@ function parseV4QC(rows: Record<string, string>[]): ParsedReport {
     const comment = row['Answer Comment']?.trim()
     if (!comment) continue
     reviewerNotes.push({
-      ref: row['Reference']?.trim() ?? '',
+      ref: normalizeRef(row['Reference']),
       section: row['Section Text']?.trim() ?? '',
       question: row['Question Text']?.trim() ?? '',
       answer: row['Answer']?.trim() ?? '',
@@ -428,11 +483,21 @@ function parseV4QC(rows: Record<string, string>[]): ParsedReport {
 
   const sectionStatsChart = sectionStatsChartFromZeroTotal(sectionStats)
 
+  const sortedScores = [...scores].sort((a, b) => a - b)
+  const medianScore = Math.round(median(sortedScores) * 10) / 10
+  const voiceCount = calls.filter((c) => c.eventType === 'Voice').length
+  const chatCount = calls.filter((c) => c.eventType === 'Chat').length
+  const dailyTrend = buildDailyTrend(calls)
+
   return {
     format: 'v4-multirow',
     callCount,
     lowScoreCount,
     avgScore,
+    medianScore,
+    voiceCount,
+    chatCount,
+    dailyTrend,
     passRate,
     detectedIssues,
     sectionStats,
